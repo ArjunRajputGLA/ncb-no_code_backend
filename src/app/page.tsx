@@ -17,9 +17,11 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { 
   Plus, Database, Server, Globe, Folder, Download, Check, ChevronDown, X, Code, Settings, Loader,
-  Mail, Webhook, Timer, FileText, Shield, Key, Users, Cloud, Zap, ArrowRight, Play
+  Mail, Webhook, Timer, FileText, Shield, Key, Users, Cloud, Zap, ArrowRight, Play, FolderOpen
 } from 'lucide-react';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { backendService } from '../services/backendService';
+import { ProjectData, Workflow } from '../types';
 
 // Types for our project configuration
 interface ProjectConfig {
@@ -69,6 +71,93 @@ const NODE_TEMPLATES: NodeTemplate[] = [
   { id: 'docker', type: 'docker', label: 'Docker', icon: Cloud, color: 'bg-gray-600', description: 'Containerization setup', category: 'deployment' },
   { id: 'logging', type: 'logging', label: 'Logging', icon: FileText, color: 'bg-slate-600', description: 'Application logging', category: 'deployment' },
 ];
+
+// Custom Edge Component with Delete Button
+const CustomEdge = ({ 
+  id, 
+  sourceX, 
+  sourceY, 
+  targetX, 
+  targetY, 
+  style = {},
+  markerEnd,
+  selected
+}: {
+  id: string;
+  sourceX: number;
+  sourceY: number;
+  targetX: number;
+  targetY: number;
+  style?: React.CSSProperties;
+  markerEnd?: string;
+  selected?: boolean;
+}) => {
+  const [isHovered, setIsHovered] = useState(false);
+  
+  const edgePath = `M${sourceX},${sourceY} C${sourceX + 50},${sourceY} ${targetX - 50},${targetY} ${targetX},${targetY}`;
+  
+  // Calculate middle point for delete button
+  const midX = (sourceX + targetX) / 2;
+  const midY = (sourceY + targetY) / 2;
+  
+  const handleDelete = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    // Dispatch custom event to delete edge
+    window.dispatchEvent(new CustomEvent('deleteEdge', { 
+      detail: { edgeId: id } 
+    }));
+  };
+  
+  return (
+    <>
+      {/* Invisible wider path for easier hovering */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={20}
+        className="react-flow__edge-path"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      />
+      
+      {/* Visible edge path */}
+      <path
+        id={id}
+        style={{
+          ...style,
+          stroke: selected ? '#3b82f6' : isHovered ? '#6b7280' : '#4b5563',
+          strokeWidth: selected ? 3 : isHovered ? 2.5 : 2,
+        }}
+        className="react-flow__edge-path"
+        d={edgePath}
+        markerEnd={markerEnd}
+        fill="none"
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      />
+      
+      {/* Delete button - only show on hover or when selected */}
+      {(isHovered || selected) && (
+        <foreignObject
+          width={24}
+          height={24}
+          x={midX - 12}
+          y={midY - 12}
+          className="overflow-visible"
+        >
+          <button
+            onClick={handleDelete}
+            className="w-6 h-6 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-lg border border-red-500 transition-all duration-200 transform hover:scale-110"
+            title="Delete connection"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </foreignObject>
+      )}
+    </>
+  );
+};
 
 // Custom Node Component for React Flow
 const WorkflowNodeComponent = ({ data, selected, id }: { data: { label: string; iconName: string; color: string; description: string; size?: 'small' | 'medium' | 'large' }; selected: boolean; id: string }) => {
@@ -224,6 +313,11 @@ const nodeTypes = {
   workflowNode: WorkflowNodeComponent,
 };
 
+// Edge types for React Flow
+const edgeTypes = {
+  custom: CustomEdge,
+};
+
 // Workflow Builder Component
 const WorkflowBuilder = ({ 
   config, 
@@ -236,6 +330,25 @@ const WorkflowBuilder = ({
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [nodeId, setNodeId] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState<string>('core');
+
+  // Real-time workflow updates
+  React.useEffect(() => {
+    const updateWorkflow = async () => {
+      if ((nodes.length > 0 || edges.length > 0)) {
+        try {
+          const workflow: Workflow = { nodes, edges };
+          // We'll implement this when a project is created
+          console.log('📊 Workflow updated:', workflow);
+        } catch (error) {
+          console.error('Error updating workflow:', error);
+        }
+      }
+    };
+
+    // Debounce the updates to avoid too many calls
+    const timeoutId = setTimeout(updateWorkflow, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [nodes, edges]);
 
   const handleClearAll = useCallback(() => {
     if (nodes.length > 0) {
@@ -256,6 +369,11 @@ const WorkflowBuilder = ({
       setEdges((eds) => eds.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
     };
 
+    const handleDeleteEdge = (event: CustomEvent) => {
+      const { edgeId } = event.detail;
+      setEdges((eds) => eds.filter((edge) => edge.id !== edgeId));
+    };
+
     const handleResizeNode = (event: CustomEvent) => {
       const { nodeId, size } = event.detail;
       setNodes((nds) => 
@@ -271,12 +389,21 @@ const WorkflowBuilder = ({
     const handleKeyDown = (event: KeyboardEvent) => {
       // Delete selected nodes with Delete or Backspace key
       if (event.key === 'Delete' || event.key === 'Backspace') {
-        const selectedNodes = nodes.filter(node => node.selected);
-        if (selectedNodes.length > 0) {
+        const selectedNodesList = nodes.filter(node => node.selected);
+        const selectedEdgesList = edges.filter(edge => edge.selected);
+        
+        if (selectedNodesList.length > 0 || selectedEdgesList.length > 0) {
           event.preventDefault();
-          selectedNodes.forEach(node => {
+          
+          // Delete selected nodes
+          selectedNodesList.forEach(node => {
             setNodes((nds) => nds.filter((n) => n.id !== node.id));
             setEdges((eds) => eds.filter((edge) => edge.source !== node.id && edge.target !== node.id));
+          });
+          
+          // Delete selected edges
+          selectedEdgesList.forEach(edge => {
+            setEdges((eds) => eds.filter((e) => e.id !== edge.id));
           });
         }
       }
@@ -289,15 +416,17 @@ const WorkflowBuilder = ({
     };
 
     window.addEventListener('deleteNode', handleDeleteNode as EventListener);
+    window.addEventListener('deleteEdge', handleDeleteEdge as EventListener);
     window.addEventListener('resizeNode', handleResizeNode as EventListener);
     document.addEventListener('keydown', handleKeyDown);
 
     return () => {
       window.removeEventListener('deleteNode', handleDeleteNode as EventListener);
+      window.removeEventListener('deleteEdge', handleDeleteEdge as EventListener);
       window.removeEventListener('resizeNode', handleResizeNode as EventListener);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [setNodes, setEdges, nodes, handleClearAll]);
+  }, [setNodes, setEdges, nodes, edges, handleClearAll]);
 
   const categories = [
     { id: 'core', label: 'Core', icon: Server },
@@ -310,9 +439,10 @@ const WorkflowBuilder = ({
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({
       ...params,
+      id: `edge-${Date.now()}`, // Add unique ID for edges
+      type: 'custom', // Use custom edge type
       animated: true,
       style: { stroke: '#6b7280', strokeWidth: 2 },
-      type: 'smoothstep'
     }, eds)),
     [setEdges],
   );
@@ -437,6 +567,10 @@ const WorkflowBuilder = ({
               <div className="w-1.5 h-1.5 bg-purple-400 rounded-full"></div>
               <span>Connect components with drag handles</span>
             </div>
+            <div className="flex items-center gap-2">
+              <div className="w-1.5 h-1.5 bg-orange-400 rounded-full"></div>
+              <span>Hover over connections to delete them</span>
+            </div>
           </div>
         </div>
         
@@ -559,12 +693,12 @@ const WorkflowBuilder = ({
                         <kbd className="bg-gray-700 px-1.5 py-0.5 rounded text-gray-300">Ctrl+Shift+X</kbd>
                       </div>
                       <div className="flex justify-between">
-                        <span>Select component</span>
+                        <span>Select component/edge</span>
                         <kbd className="bg-gray-700 px-1.5 py-0.5 rounded text-gray-300">Click</kbd>
                       </div>
                       <div className="flex justify-between">
-                        <span>Resize component</span>
-                        <kbd className="bg-gray-700 px-1.5 py-0.5 rounded text-gray-300">Size buttons</kbd>
+                        <span>Delete connection</span>
+                        <kbd className="bg-gray-700 px-1.5 py-0.5 rounded text-gray-300">Hover + X</kbd>
                       </div>
                     </div>
                   </div>
@@ -585,6 +719,7 @@ const WorkflowBuilder = ({
             onDrop={onDrop}
             onDragOver={onDragOver}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             fitView
             className="bg-gray-900"
             defaultViewport={{ x: 0, y: 0, zoom: 0.8 }}
@@ -755,6 +890,220 @@ const Dropdown: React.FC<DropdownProps> = ({ options, value, onChange, placehold
           onClick={() => setIsOpen(false)}
         />
       )}
+    </div>
+  );
+};
+
+// Project Success Component
+const ProjectSuccessPage: React.FC<{
+  config: ProjectConfig;
+  isCreating: boolean;
+  status: string;
+  projectPath: string;
+  onPathChange: (path: string) => void;
+  onProceedToWorkflow: () => void;
+  onBrowseDirectory: () => void;
+}> = ({ config, isCreating, status, projectPath, onPathChange, onProceedToWorkflow, onBrowseDirectory }) => {
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="bg-gradient-to-br from-green-800/90 to-emerald-900/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-green-700/50 overflow-hidden">
+        {/* Header */}
+        <div className="relative bg-gradient-to-r from-green-600 via-emerald-600 to-teal-600 px-8 py-6">
+          <div className="absolute inset-0 bg-black/20"></div>
+          <div className="relative">
+            <h2 className="text-2xl font-bold text-white flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
+                {isCreating ? (
+                  <Loader className="w-6 h-6 animate-spin" />
+                ) : (
+                  <Check className="w-6 h-6" />
+                )}
+              </div>
+              {isCreating ? 'Creating Your Project...' : 'Project Generated Successfully!'}
+            </h2>
+            <p className="text-green-100/90 text-sm leading-relaxed">
+              {isCreating 
+                ? 'Please wait while we set up your backend project with all dependencies and configurations.'
+                : `Your ${config.framework} project "${config.name}" has been created successfully!`
+              }
+            </p>
+          </div>
+        </div>
+
+        <div className="p-8 space-y-6">
+          {/* Project Details */}
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Folder className="w-5 h-5 text-blue-400" />
+              Project Configuration
+            </h3>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+              <div className="space-y-1">
+                <span className="text-gray-400">Project Name</span>
+                <div className="text-green-400 font-medium">{config.name}</div>
+              </div>
+              <div className="space-y-1">
+                <span className="text-gray-400">Language</span>
+                <div className="text-blue-400 font-medium">{LANGUAGES.find(l => l.id === config.language)?.label}</div>
+              </div>
+              <div className="space-y-1">
+                <span className="text-gray-400">Framework</span>
+                <div className="text-purple-400 font-medium">{FRAMEWORKS.find(f => f.id === config.framework)?.label}</div>
+              </div>
+              <div className="space-y-1">
+                <span className="text-gray-400">Database</span>
+                <div className="text-orange-400 font-medium">{DATABASES.find(d => d.id === config.database)?.label}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Project Path Configuration */}
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Settings className="w-5 h-5 text-purple-400" />
+              Project Location
+            </h3>
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-gray-300">
+                Choose the directory where your project will be created:
+              </label>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  value={projectPath}
+                  onChange={(e) => onPathChange(e.target.value)}
+                  className="flex-1 px-4 py-3 bg-gray-700/80 border border-gray-600 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="C:\ncb"
+                  disabled={isCreating}
+                />
+                <button
+                  onClick={onBrowseDirectory}
+                  className="px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded-lg transition-colors flex items-center gap-2"
+                  disabled={isCreating}
+                >
+                  <Folder className="w-4 h-4" />
+                  Browse
+                </button>
+              </div>
+              <p className="text-xs text-gray-400">
+                Your project will be created at: <span className="text-blue-400 font-mono">{projectPath}\{config.name}</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Progress Status */}
+          {isCreating && (
+            <div className="bg-blue-900/30 backdrop-blur-sm rounded-xl p-6 border border-blue-700/50">
+              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                <Loader className="w-5 h-5 animate-spin text-blue-400" />
+                Setup Progress
+              </h3>
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-1 bg-blue-600 rounded-full overflow-hidden">
+                    <div className="w-full h-full bg-blue-400 animate-pulse"></div>
+                  </div>
+                  <span className="text-blue-400 font-medium">{status}</span>
+                </div>
+                <div className="text-sm text-gray-400">
+                  This may take a few moments depending on your internet connection and system performance.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* What's Happening */}
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700/50">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Code className="w-5 h-5 text-green-400" />
+              What&apos;s Being Created
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-green-400">
+                  <div className="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
+                  <span>NCB directory structure</span>
+                </div>
+                <div className="flex items-center gap-2 text-green-400">
+                  <div className="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
+                  <span>Project folder creation</span>
+                </div>
+                <div className="flex items-center gap-2 text-green-400">
+                  <div className="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
+                  <span>Package manager initialization</span>
+                </div>
+                <div className="flex items-center gap-2 text-green-400">
+                  <div className="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
+                  <span>Dependencies installation</span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-blue-400">
+                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
+                  <span>Framework setup ({config.framework})</span>
+                </div>
+                <div className="flex items-center gap-2 text-blue-400">
+                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
+                  <span>Database configuration ({config.database})</span>
+                </div>
+                <div className="flex items-center gap-2 text-blue-400">
+                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
+                  <span>Environment files creation</span>
+                </div>
+                <div className="flex items-center gap-2 text-blue-400">
+                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
+                  <span>Server files generation</span>
+                </div>
+              </div>
+            </div>
+            
+            {!isCreating && (
+              <div className="mt-4 p-3 bg-green-900/30 rounded-lg border border-green-700/50">
+                <p className="text-sm text-green-300">
+                  ✅ Your project has been created successfully at: <span className="font-mono text-green-200">{projectPath}\\{config.name}</span>
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Next Steps */}
+          {!isCreating && (
+            <div className="bg-gradient-to-r from-purple-900/30 to-blue-900/30 backdrop-blur-sm rounded-xl p-6 border border-purple-700/50">
+              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                <ArrowRight className="w-5 h-5 text-purple-400" />
+                Next: Design Your Workflow
+              </h3>
+              <p className="text-gray-300 mb-6">
+                Your project structure is ready! Now you can design your backend architecture using our visual workflow designer.
+              </p>
+              <div className="flex items-center gap-4 text-sm text-gray-400 mb-6">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
+                  <span>Drag & drop components</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                  <span>Connect your architecture</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                  <span>Generate final project</span>
+                </div>
+              </div>
+              <button
+                onClick={onProceedToWorkflow}
+                className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
+              >
+                <div className="w-6 h-6 bg-white/20 rounded-lg flex items-center justify-center">
+                  <Code className="w-4 h-4" />
+                </div>
+                <span>Open Workflow Designer</span>
+                <ArrowRight className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
@@ -1045,17 +1394,103 @@ const GeneratedProjectDisplay: React.FC<GeneratedProjectDisplayProps> = ({ proje
 };
 
 const NoCodeBackendGenerator = () => {
-  const [currentStep, setCurrentStep] = useState<'setup' | 'workflow' | 'generated'>('setup');
+  const [currentStep, setCurrentStep] = useState<'setup' | 'success' | 'workflow' | 'generated'>('setup');
   const [projectConfig, setProjectConfig] = useState<ProjectConfig | null>(null);
   const [generatedProject, setGeneratedProject] = useState<GeneratedProject | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [projectPath, setProjectPath] = useState<string>('C:\\ncb');
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [projectCreationStatus, setProjectCreationStatus] = useState<string>('');
+  const [currentProjectPath, setCurrentProjectPath] = useState<string>('');
+  const [projectStatus, setProjectStatus] = useState<string>('');
 
   // Initialize Gemini AI (you'll need to add your API key)
   const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY || '');
 
-  const handleProjectSetup = (config: ProjectConfig) => {
+  const handleProjectSetup = async (config: ProjectConfig) => {
     setProjectConfig(config);
-    setCurrentStep('workflow');
+    setIsCreatingProject(true);
+    setCurrentStep('success');
+    
+    try {
+      // Step 1: Create the ncb directory and project folder
+      setProjectCreationStatus('Creating project directory structure...');
+      const result = await createProjectDirectory(config.name, { nodes: [], edges: [] }, config);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to create project directory');
+      }
+      
+      // Step 2: Store project path and generate mock project for display
+      setCurrentProjectPath(result.path!);
+      setProjectCreationStatus('Project created successfully! Backend is ready.');
+      const mockProject = generateMockProject(config, { nodes: [], edges: [] });
+      setGeneratedProject(mockProject);
+      
+      // Step 3: Switch to workflow view
+      setProjectCreationStatus('Ready to design your workflow...');
+      
+      // Wait a moment then show completion
+      setTimeout(() => {
+        setProjectCreationStatus('Ready to design workflow architecture!');
+        setTimeout(() => {
+          setIsCreatingProject(false);
+          setCurrentStep('workflow');
+        }, 1000);
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Error creating project:', error);
+      setProjectCreationStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIsCreatingProject(false);
+    }
+  };
+
+  // Function to create project using Node.js backend
+  const createProjectDirectory = async (projectName: string, workflow: Workflow = { nodes: [], edges: [] }, config?: ProjectConfig): Promise<{ success: boolean; path?: string; error?: string }> => {
+    try {
+      const projectData: ProjectData = {
+        projectName,
+        location: projectPath,
+        workflow,
+        framework: config?.framework,
+        database: config?.database,
+        language: config?.language
+      };
+
+      const result = await backendService.createProject(projectData);
+      
+      if (result.success) {
+        // Start listening for real-time updates
+        backendService.onProjectUpdate((data) => {
+          console.log('📝 Project updated:', data);
+          setProjectStatus('Project updated: ' + data.message);
+        });
+
+        backendService.onFileChange((data) => {
+          console.log('📁 File changed:', data.filePath);
+          setProjectStatus('File changed: ' + data.filePath);
+        });
+
+        backendService.onError((error) => {
+          console.error('❌ Backend error:', error);
+          setProjectStatus('Error: ' + error.message);
+        });
+
+        return { success: true, path: result.projectPath };
+      } else {
+        return { success: false, error: result.error };
+      }
+    } catch (error) {
+      console.error('Error creating project:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  };
+
+  // Function to select directory using Electron API
+  const selectProjectDirectory = async (): Promise<void> => {
+    // For web version, we use a default path since backend handles directory creation
+    console.log('Using default project path:', projectPath);
   };
 
   const generateProjectFromWorkflow = async (config: ProjectConfig, workflow: { nodes: Node[]; edges: Edge[] }) => {
@@ -1192,19 +1627,19 @@ ${hasEmail ? 'echo "// Email service" > src/services/email.js' : ''}
 
 echo "Project setup complete with workflow components!"`;
 
-    const projectStructure = `${config.name}/
-├── src/
+    const projectStructure = `${config.name}\\
+├── src\\
 │   ├── app.js
 │   ├── server.js
-│   ├── routes/
-${hasAuth ? '│   ├── auth/' : ''}
-${hasEmail ? '│   ├── services/' : ''}
-${hasCache ? '│   ├── cache/' : ''}
-${hasWebhooks ? '│   ├── webhooks/' : ''}
-├── models/
-├── controllers/
-├── middleware/
-├── config/
+│   ├── routes\\
+${hasAuth ? '│   ├── auth\\' : ''}
+${hasEmail ? '│   ├── services\\' : ''}
+${hasCache ? '│   ├── cache\\' : ''}
+${hasWebhooks ? '│   ├── webhooks\\' : ''}
+├── models\\
+├── controllers\\
+├── middleware\\
+├── config\\
 ├── .env
 ├── .gitignore
 ├── package.json
@@ -1236,6 +1671,8 @@ ${hasDocker ? '├── docker-compose.yml' : ''}
     setCurrentStep('setup');
     setProjectConfig(null);
     setGeneratedProject(null);
+    setIsCreatingProject(false);
+    setProjectCreationStatus('');
   };
 
   const handleDownload = () => {
@@ -1273,9 +1710,14 @@ ${hasDocker ? '├── docker-compose.yml' : ''}
             <div className="flex items-center gap-6">
               {/* Progress Indicator */}
               <div className="flex items-center gap-4 text-sm">
-                <div className={`flex items-center gap-2 ${currentStep === 'setup' ? 'text-blue-400' : currentStep === 'workflow' || currentStep === 'generated' ? 'text-green-400' : 'text-gray-500'}`}>
-                  <div className={`w-2 h-2 rounded-full ${currentStep === 'setup' ? 'bg-blue-400' : currentStep === 'workflow' || currentStep === 'generated' ? 'bg-green-400' : 'bg-gray-500'}`}></div>
+                <div className={`flex items-center gap-2 ${currentStep === 'setup' ? 'text-blue-400' : currentStep === 'success' || currentStep === 'workflow' || currentStep === 'generated' ? 'text-green-400' : 'text-gray-500'}`}>
+                  <div className={`w-2 h-2 rounded-full ${currentStep === 'setup' ? 'bg-blue-400' : currentStep === 'success' || currentStep === 'workflow' || currentStep === 'generated' ? 'bg-green-400' : 'bg-gray-500'}`}></div>
                   Setup
+                </div>
+                <ArrowRight className="w-4 h-4 text-gray-500" />
+                <div className={`flex items-center gap-2 ${currentStep === 'success' ? 'text-blue-400' : currentStep === 'workflow' || currentStep === 'generated' ? 'text-green-400' : 'text-gray-500'}`}>
+                  <div className={`w-2 h-2 rounded-full ${currentStep === 'success' ? 'bg-blue-400' : currentStep === 'workflow' || currentStep === 'generated' ? 'bg-green-400' : 'bg-gray-500'}`}></div>
+                  Create
                 </div>
                 <ArrowRight className="w-4 h-4 text-gray-500" />
                 <div className={`flex items-center gap-2 ${currentStep === 'workflow' ? 'text-blue-400' : currentStep === 'generated' ? 'text-green-400' : 'text-gray-500'}`}>
@@ -1352,6 +1794,18 @@ ${hasDocker ? '├── docker-compose.yml' : ''}
               isGenerating={isGenerating}
             />
           </div>
+        )}
+
+        {currentStep === 'success' && projectConfig && (
+          <ProjectSuccessPage
+            config={projectConfig}
+            isCreating={isCreatingProject}
+            status={projectCreationStatus}
+            projectPath={projectPath}
+            onPathChange={setProjectPath}
+            onProceedToWorkflow={() => setCurrentStep('workflow')}
+            onBrowseDirectory={selectProjectDirectory}
+          />
         )}
 
         {currentStep === 'workflow' && projectConfig && (

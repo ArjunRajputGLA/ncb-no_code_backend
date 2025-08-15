@@ -68,3 +68,40 @@ export interface WorkflowBuilderProps {
   onGenerateProject: (nodes: Node[], edges: Edge[]) => void;
   isGenerating: boolean;
 }
+
+// Backend Service Types
+export interface Workflow {
+  nodes: Node[];
+  edges: Edge[];
+}
+
+export interface ProjectData {
+  projectName: string;
+  location: string;
+  workflow: Workflow;
+  framework?: string;
+  database?: string;
+  language?: string;
+}
+
+export interface BackendResponse {
+  success: boolean;
+  message: string;
+  projectPath?: string;
+  error?: string;
+}
+
+export interface ProjectUpdateData {
+  message: string;
+  timestamp: string;
+}
+
+export interface FileChangeData {
+  filePath: string;
+  projectName: string;
+  timestamp: string;
+}
+
+export interface BackendError {
+  message: string;
+}
