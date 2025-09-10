@@ -36,6 +36,9 @@ import {
   AlertCircle,
   CheckCircle,
   ArrowLeft,
+  FileText,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 import Dashboard from "../components/Dashboard";
@@ -44,11 +47,14 @@ import ResponseNode from "./nodes/ResponseNode";
 import TransformationNode from "@/components/nodes/TransformationNode";
 import ValidationNode from "@/components/nodes/ValidationNode";
 import DatabaseNode from "@/components/nodes/DatabaseNode";
+import FileExplorer from "./File Explorer/FileExplorer"; // Import the new FileExplorer
 import { WorkflowSerializer } from "@/utils/workflowSerializer";
 import Chatbot from "./Chatbot";
 import WorkflowApplier from "./WorkflowApplier";
 import AIBackendGenerator from "./Ai-agent/AIBackendGenerator";
 import { getDatabase } from "@/utils/database";
+
+// ... (keep all existing interfaces and types)
 
 const iconMap = {
   Database,
@@ -62,8 +68,8 @@ const iconMap = {
   Zap,
   Package,
   Globe,
-  Send, // <-- Add Send icon for Response node
-  Shield, // <-- Add Shield icon for Validation node
+  Send,
+  Shield,
 };
 
 type CustomNodeData = {
@@ -117,7 +123,7 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
   );
 };
 
-// Node types for ReactFlow - Only API and Response nodes
+// Node types for ReactFlow
 const nodeTypes: NodeTypes = {
   customNode: CustomNode,
   apiNode: ApiNode,
@@ -127,7 +133,7 @@ const nodeTypes: NodeTypes = {
   databaseNode: DatabaseNode,
 };
 
-// Add templates for all node types
+// Node templates
 const nodeTemplates = [
   {
     id: "apiService",
@@ -141,7 +147,7 @@ const nodeTemplates = [
     id: "httpResponse",
     type: "response",
     nodeType: "responseNode",
-    iconName: "Send", // <-- Use Send icon for Response node
+    iconName: "Send",
     label: "HTTP Response",
     color: "bg-green-600",
   },
@@ -157,7 +163,7 @@ const nodeTemplates = [
     id: "dataValidation",
     type: "validation",
     nodeType: "validationNode",
-    iconName: "Shield", // <-- Use Shield icon for Validation node
+    iconName: "Shield",
     label: "Data Validation",
     color: "bg-red-600",
   },
@@ -187,6 +193,11 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [projectName, setProjectName] = useState<string>('');
   const [isLoadingWorkflow, setIsLoadingWorkflow] = useState(true);
+  
+  // New state for file explorer
+  const [showFileExplorer, setShowFileExplorer] = useState(true);
+  const [selectedFile, setSelectedFile] = useState<any>(null);
+  const [currentDirectory, setCurrentDirectory] = useState<string>('');
 
   // Load project and workflow data on component mount
   useEffect(() => {
@@ -389,7 +400,17 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
     event.dataTransfer.effectAllowed = "move";
   };
 
-  // Workflow operations
+  // File Explorer handlers
+  const handleFileSelect = (file: any) => {
+    setSelectedFile(file);
+    console.log('Selected file:', file);
+  };
+
+  const handleDirectoryChange = (path: string) => {
+    setCurrentDirectory(path);
+  };
+
+  // Workflow operations (keep existing implementations)
   const clearWorkflow = () => {
     setNodes([]);
     setEdges([]);
@@ -403,7 +424,6 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
       return;
     }
 
-    // Generate execution summary
     const apiNodes = nodes.filter((n) => n.type === "apiNode");
     const responseNodes = nodes.filter((n) => n.type === "responseNode");
 
@@ -436,7 +456,6 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
 
   const exportWorkflow = () => {
     try {
-      // Remove color from node data before serialization
       const nodesForExport = nodes.map((node) => {
         const { color, ...dataWithoutColor } = node.data;
         return { ...node, data: dataWithoutColor };
@@ -449,7 +468,6 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
 
       WorkflowSerializer.exportToFile(workflow);
 
-      // Show export summary
       const summary =
         `Exported: ${workflowName}\n\n` +
         `Nodes: ${workflow.nodes.length}\n` +
@@ -468,7 +486,6 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
       const { nodes: importedNodes, edges: importedEdges } =
         WorkflowSerializer.deserialize(workflow);
 
-      // Re-apply color based on node type
       const nodesWithColor = importedNodes.map((node) => ({
         ...node,
         data: {
@@ -481,14 +498,12 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
       setEdges(importedEdges);
       setWorkflowName(workflow.metadata.name);
 
-      // Update node ID counter
       const maxId = Math.max(
         0,
         ...nodesWithColor.map((n) => parseInt(n.id.split("_")[1]) || 0)
       );
       setNodeId(maxId + 1);
 
-      // Show import summary
       const summary =
         `Imported: ${workflow.metadata.name}\n\n` +
         `Nodes: ${nodesWithColor.length}\n` +
@@ -513,13 +528,11 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
       await db.saveWorkflow(projectId, nodes, edges);
       setSaveStatus('saved');
       
-      // Reset status after 2 seconds
       setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (error) {
       console.error('Error saving workflow:', error);
       setSaveStatus('error');
       
-      // Reset status after 3 seconds
       setTimeout(() => setSaveStatus('idle'), 3000);
     }
   };
@@ -528,10 +541,8 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
     router.push('/');
   };
 
-  // Handler to apply generated workflow to canvas
   const handleApplyWorkflow = (workflowData: any) => {
     if (!workflowData) return;
-    // Re-apply color based on node type
     const nodesWithColor = workflowData.nodes.map((node: any) => ({
       ...node,
       data: {
@@ -542,13 +553,12 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
     setNodes(nodesWithColor);
     setEdges(workflowData.connections || []);
     setWorkflowName(workflowData.metadata?.name || "My Workflow");
-    // Update node ID counter
     const maxId = Math.max(
       0,
       ...nodesWithColor.map((n: any) => parseInt(n.id.split("_")[1]) || 0)
     );
     setNodeId(maxId + 1);
-    setGeneratedWorkflow(null); // Clear after applying
+    setGeneratedWorkflow(null);
   };
 
   const renderAIGeneratorButton = () => (
@@ -562,7 +572,6 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
     </button>
   );
 
-  // Handler to clear generated workflow preview
   const handleClearGenerated = () => setGeneratedWorkflow(null);
 
   return (
@@ -580,211 +589,271 @@ const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({ projectId }) => {
         </div>
       ) : (
         <div className="flex h-screen bg-gray-50 relative">
-      {/* Enhanced Node Sidebar with workflow controls */}
-      <div className="w-80 bg-white shadow-lg border-r border-gray-200 flex flex-col">
-        {/* Header with Back Button */}
-        <div className="p-4 border-b border-gray-200">
-          {/* Back to Projects Button */}
-          <div className="mb-4">
-            <button
-              onClick={handleBackToProjects}
-              className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors duration-200 text-sm font-medium"
-              title="Back to Projects"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back to Projects</span>
-            </button>
+          {/* Left Sidebar - Node Templates */}
+          <div className="w-80 bg-white shadow-lg border-r border-gray-200 flex flex-col">
+            {/* Header with Back Button */}
+            <div className="p-4 border-b border-gray-200">
+              {/* Back to Projects Button */}
+              <div className="mb-4">
+                <button
+                  onClick={handleBackToProjects}
+                  className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors duration-200 text-sm font-medium"
+                  title="Back to Projects"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Back to Projects</span>
+                </button>
+              </div>
+
+              {/* Project Info */}
+              {projectName && (
+                <div className="mb-3 p-3 bg-gray-50 rounded-lg">
+                  <div className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1">
+                    Project
+                  </div>
+                  <div className="text-sm font-medium text-gray-900">{projectName}</div>
+                </div>
+              )}
+
+              <div className="mb-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Workflow Name
+                </label>
+                <input
+                  type="text"
+                  value={workflowName}
+                  onChange={(e) => setWorkflowName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter workflow name"
+                />
+              </div>
+
+              <div className="flex space-x-2">
+                <button
+                  onClick={exportWorkflow}
+                  className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
+                  disabled={nodes.length === 0}
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Export</span>
+                </button>
+                <button
+                  onClick={importWorkflow}
+                  className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>Import</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Node Templates */}
+            <div className="flex-1 p-4">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                Available Nodes
+              </h3>
+              <div className="space-y-2">
+                {nodeTemplates.map((template) => {
+                  const IconComponent =
+                    iconMap[template.iconName as keyof typeof iconMap];
+                  return (
+                    <div
+                      key={template.id}
+                      draggable
+                      onDragStart={(event) => onDragStart(event, template)}
+                      className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 hover:border-gray-300 hover:bg-gray-100 cursor-move transition-all duration-200"
+                    >
+                      <div
+                        className={`w-10 h-10 rounded-md ${template.color} flex items-center justify-center flex-shrink-0`}
+                      >
+                        {IconComponent && (
+                          <IconComponent className="w-5 h-5 text-white" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-gray-800">
+                          {template.label}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Drag to canvas to add
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="p-4 border-t border-gray-200 space-y-2">
+              {/* AI Generator Button */}
+              {renderAIGeneratorButton()}
+
+              <button
+                onClick={executeWorkflow}
+                className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+              >
+                <Play className="w-4 h-4" />
+                <span>Execute Workflow</span>
+              </button>
+
+              <div className="flex space-x-2">
+                <button
+                  onClick={saveWorkflow}
+                  disabled={saveStatus === 'saving' || !projectId}
+                  className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded-md transition-colors text-sm ${
+                    saveStatus === 'saving' 
+                      ? 'bg-gray-400 text-gray-700 cursor-not-allowed' 
+                      : saveStatus === 'saved'
+                      ? 'bg-green-600 text-white hover:bg-green-700'
+                      : saveStatus === 'error'
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  {saveStatus === 'saving' ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-gray-700 border-t-transparent rounded-full animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : saveStatus === 'saved' ? (
+                    <>
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Saved</span>
+                    </>
+                  ) : saveStatus === 'error' ? (
+                    <>
+                      <AlertCircle className="w-4 h-4" />
+                      <span>Error</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Save</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={clearWorkflow}
+                  className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Clear</span>
+                </button>
+              </div>
+
+              {/* Workflow Stats */}
+              <div className="text-center text-sm text-gray-500 pt-2 border-t border-gray-100">
+                <div>
+                  Nodes: {nodes.length} | Connections: {edges.length}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Project Info */}
-          {projectName && (
-            <div className="mb-3 p-3 bg-gray-50 rounded-lg">
-              <div className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1">
-                Project
-              </div>
-              <div className="text-sm font-medium text-gray-900">{projectName}</div>
-            </div>
-          )}
-
-          <div className="mb-3">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Workflow Name
-            </label>
-            <input
-              type="text"
-              value={workflowName}
-              onChange={(e) => setWorkflowName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter workflow name"
+          {/* Middle - Dashboard */}
+          <div className="flex-1 flex flex-col">
+            <Dashboard
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              nodeTypes={nodeTypes}
             />
           </div>
 
-          <div className="flex space-x-2">
+          {/* Right Sidebar - File Explorer */}
+          <div className={`${showFileExplorer ? 'w-80' : 'w-12'} transition-all duration-300 ease-in-out bg-white border-l border-gray-200 relative`}>
+            {/* File Explorer Toggle Button */}
             <button
-              onClick={exportWorkflow}
-              className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
-              disabled={nodes.length === 0}
+              onClick={() => setShowFileExplorer(!showFileExplorer)}
+              className="absolute left-0 top-4 -translate-x-6 z-10 bg-white border border-gray-200 rounded-l-lg px-2 py-2 hover:bg-gray-50 transition-colors shadow-sm"
+              title={showFileExplorer ? "Hide File Explorer" : "Show File Explorer"}
             >
-              <Download className="w-4 h-4" />
-              <span>Export</span>
+              {showFileExplorer ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
-            <button
-              onClick={importWorkflow}
-              className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-sm"
-            >
-              <Upload className="w-4 h-4" />
-              <span>Import</span>
-            </button>
-          </div>
-        </div>
 
-        {/* Node Templates */}
-        <div className="flex-1 p-4">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">
-            Available Nodes
-          </h3>
-          <div className="space-y-2">
-            {nodeTemplates.map((template) => {
-              const IconComponent =
-                iconMap[template.iconName as keyof typeof iconMap];
-              return (
-                <div
-                  key={template.id}
-                  draggable
-                  onDragStart={(event) => onDragStart(event, template)}
-                  className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200 hover:border-gray-300 hover:bg-gray-100 cursor-move transition-all duration-200"
-                >
-                  <div
-                    className={`w-10 h-10 rounded-md ${template.color} flex items-center justify-center flex-shrink-0`}
-                  >
-                    {IconComponent && (
-                      <IconComponent className="w-5 h-5 text-white" />
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-gray-800">
-                      {template.label}
+            {/* File Explorer Content */}
+            {showFileExplorer && (
+              <>
+                <FileExplorer
+                  onFileSelect={handleFileSelect}
+                  onDirectoryChange={handleDirectoryChange}
+                  className="h-full"
+                />
+
+                {/* Selected File Info Panel */}
+                {selectedFile && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4">
+                    <h4 className="text-sm font-medium text-gray-800 mb-2 flex items-center">
+                      <FileText className="w-4 h-4 mr-2" />
+                      Selected File
+                    </h4>
+                    <div className="text-xs text-gray-600 space-y-1">
+                      <div className="truncate" title={selectedFile.name}>
+                        <strong>Name:</strong> {selectedFile.name}
+                      </div>
+                      <div className="truncate" title={selectedFile.path}>
+                        <strong>Path:</strong> {selectedFile.path}
+                      </div>
+                      {!selectedFile.isDirectory && (
+                        <>
+                          <div>
+                            <strong>Size:</strong> {Math.round(selectedFile.size / 1024)} KB
+                          </div>
+                          <div>
+                            <strong>Type:</strong> {selectedFile.type}
+                          </div>
+                        </>
+                      )}
                     </div>
-                    <div className="text-xs text-gray-500">
-                      Drag to canvas to add
-                    </div>
+                    <button
+                      onClick={() => setSelectedFile(null)}
+                      className="mt-2 px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 transition-colors"
+                    >
+                      Clear Selection
+                    </button>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="p-4 border-t border-gray-200 space-y-2">
-          {/* AI Generator Button */}
-          {renderAIGeneratorButton()}
-
-          <button
-            onClick={executeWorkflow}
-            className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-          >
-            <Play className="w-4 h-4" />
-            <span>Execute Workflow</span>
-          </button>
-
-          <div className="flex space-x-2">
-            <button
-              onClick={saveWorkflow}
-              disabled={saveStatus === 'saving' || !projectId}
-              className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded-md transition-colors text-sm ${
-                saveStatus === 'saving' 
-                  ? 'bg-gray-400 text-gray-700 cursor-not-allowed' 
-                  : saveStatus === 'saved'
-                  ? 'bg-green-600 text-white hover:bg-green-700'
-                  : saveStatus === 'error'
-                  ? 'bg-red-600 text-white hover:bg-red-700'
-                  : 'bg-blue-600 text-white hover:bg-blue-700'
-              }`}
-            >
-              {saveStatus === 'saving' ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-gray-700 border-t-transparent rounded-full animate-spin" />
-                  <span>Saving...</span>
-                </>
-              ) : saveStatus === 'saved' ? (
-                <>
-                  <CheckCircle className="w-4 h-4" />
-                  <span>Saved</span>
-                </>
-              ) : saveStatus === 'error' ? (
-                <>
-                  <AlertCircle className="w-4 h-4" />
-                  <span>Error</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  <span>Save</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={clearWorkflow}
-              className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span>Clear</span>
-            </button>
+                )}
+              </>
+            )}
           </div>
 
-          {/* Workflow Stats */}
-          <div className="text-center text-sm text-gray-500 pt-2 border-t border-gray-100">
-            <div>
-              Nodes: {nodes.length} | Connections: {edges.length}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Dashboard */}
-      <Dashboard
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onDrop={onDrop}
-        onDragOver={onDragOver}
-        nodeTypes={nodeTypes}
-      />
-
-      {/* Chatbot Floating Button & Panel */}
-      <Chatbot
-        isOpen={chatbotOpen}
-        onToggle={() => setChatbotOpen((open) => !open)}
-        onWorkflowGenerated={setGeneratedWorkflow}
-      />
-
-      {/* WorkflowApplier Preview (shows after workflow is generated) */}
-      {generatedWorkflow && (
-        <div className="fixed bottom-6 left-6 z-50 w-[400px]">
-          <WorkflowApplier
-            workflowData={generatedWorkflow}
-            onApplyWorkflow={handleApplyWorkflow}
-            onClearGenerated={handleClearGenerated}
+          {/* Chatbot Floating Button & Panel */}
+          <Chatbot
+            isOpen={chatbotOpen}
+            onToggle={() => setChatbotOpen((open) => !open)}
+            onWorkflowGenerated={setGeneratedWorkflow}
           />
-        </div>
-      )}
 
-      {showAIGenerator && (
-        <AIBackendGenerator
-          workflowData={{
-            nodes: nodes.map(node => ({
-              type: node.type || 'unknown',
-              id: node.id
-            })),
-            connections: edges,
-          }}
-          onClose={() => setShowAIGenerator(false)}
-        />
-      )}
-    </div>
+          {/* WorkflowApplier Preview */}
+          {generatedWorkflow && (
+            <div className="fixed bottom-6 left-6 z-50 w-[400px]">
+              <WorkflowApplier
+                workflowData={generatedWorkflow}
+                onApplyWorkflow={handleApplyWorkflow}
+                onClearGenerated={handleClearGenerated}
+              />
+            </div>
+          )}
+
+          {/* AI Backend Generator Modal */}
+          {showAIGenerator && (
+            <AIBackendGenerator
+              workflowData={{
+                nodes: nodes.map(node => ({
+                  type: node.type || 'unknown',
+                  id: node.id
+                })),
+                connections: edges,
+              }}
+              onClose={() => setShowAIGenerator(false)}
+            />
+          )}
+        </div>
       )}
     </>
   );
